@@ -72,3 +72,55 @@ To enable communication between the Product Catalog microservice and other micro
    ```
 
 By connecting the containers to the same Docker network, they can communicate with each other using their container names as hostnames.
+
+---
+
+## Install Argo CD
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+```
+
+## Expose Argo CD server (for external access):
+
+```bash
+
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+```
+
+Wait and get the public IP:
+
+```bash
+kubectl get svc -n argocd
+```
+
+Get admin password:
+
+```bash
+
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+```
+
+Login to ArgoCD UI at http://<EXTERNAL-IP> with username admin and the password above.
+
+## Configure Argo CD to Sync with Repo
+
+In the Argo CD UI:
+
+Click New App
+
+Set:
+
+App name: ecommerce-app
+Project: `default`
+Repo URL: your GitHub repo (HTTPS)
+Path: `manifest`
+Cluster URL: `https://kubernetes.default.svc`
+Namespace: `ecommerce`
+Enable Auto-sync
+
+Now ArgoCD will deploy whatever’s in `manifest/` automatically.
