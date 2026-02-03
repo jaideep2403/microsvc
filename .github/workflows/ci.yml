@@ -18,8 +18,8 @@ on:
           - prod
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: 204645257245
   IMAGE_TAG: ${{ github.sha }}
 
 concurrency:
