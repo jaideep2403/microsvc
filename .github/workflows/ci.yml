@@ -1,4 +1,4 @@
-name: Microservices CI/CD (Single Pipeline - AWS ECR)
+name: Microservices CI/CD (AWS ECR - Single Repo)
 
 on:
   pull_request:
@@ -8,28 +8,21 @@ on:
     branches: [ main ]
 
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target environment"
-        required: true
-        default: "prod"
-        type: choice
-        options:
-          - prod
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID:  ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_ACCOUNT_ID: 204645257245
+  ECR_REPO: retail-msvc
   IMAGE_TAG: ${{ github.sha }}
 
 concurrency:
-  group: microservices-${{ github.ref }}
+  group: microsvc-${{ github.ref }}
   cancel-in-progress: true
 
+jobs:
 # --------------------------------------------------
 # 1️⃣ Detect changed services
 # --------------------------------------------------
-jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -81,10 +74,9 @@ jobs:
       - name: Build images (validation only)
         run: |
           services=("ecommerce-ui" "product-catalog" "product-inventory" "order-management" "shipping-and-handling" "profile-management" "contact-support-team")
-
           for service in "${services[@]}"; do
             if [ "${!service}" == "true" ]; then
-              docker build -t test/$service:pr-$GITHUB_SHA ./$service
+              docker build -t test/$service:pr-${GITHUB_SHA::7} ./$service
             fi
           done
 
@@ -97,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      id-token: write   # REQUIRED for OIDC
 
     steps:
       - uses: actions/checkout@v4
@@ -106,8 +98,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::204645257245:role/github-actions-oidc-role-ui3
+          aws-region: us-east-1
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -128,7 +120,7 @@ jobs:
 
           for service in "${services[@]}"; do
             if [ "${!service}" == "true" ]; then
-              IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/$service:${GITHUB_SHA::7}"
+              IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${service}-${GITHUB_SHA::7}"
 
               docker buildx build \
                 --push \
@@ -168,7 +160,7 @@ jobs:
 
           for service in "${services[@]}"; do
             if [ "${!service}" == "true" ]; then
-              sed -i "s|image: .*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/$service:${GITHUB_SHA::7}|" \
+              sed -i "s|image: .*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${service}-${GITHUB_SHA::7}|" \
                 dev/manifest/$service.yaml
             fi
           done
@@ -178,22 +170,4 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git commit -am "Deploy to DEV - ${GITHUB_SHA::7}" || echo "No changes"
-          git push
-
-# --------------------------------------------------
-# 5️⃣ Manual → Promote DEV → PROD
-# --------------------------------------------------
-  promote-prod:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Promote manifests
-        run: |
-          cp dev/manifest/* prod/manifest/
-          git commit -am "Promote DEV to PROD"
           git push
