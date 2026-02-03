@@ -1,48 +1,100 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ecommerce-ui
-  namespace: ecommerce
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ecommerce-ui
-      version: v1
-  template:
-    metadata:
-      labels:
-        app: ecommerce-ui
-        version: v1
-    spec:
-      containers:
-      - name: ecommerce-ui
-        image: thallavi/ecommerce-ui:3369a34b6fbda1e388d5b5edef555a76c92ad165
-        ports:
-        - containerPort: 4000
-        env:
-        - name: REACT_APP_PROFILE_API_HOST
-          value: "http://profile-management"
-        - name: REACT_APP_PRODUCT_API_HOST
-          value: "http://product-catalog"
-        - name: REACT_APP_INVENTORY_API_HOST
-          value: "http://product-inventory"
-        - name: REACT_APP_ORDER_API_HOST
-          value: "http://order-management"
-        - name: REACT_APP_SHIPPING_API_HOST
-          value: "http://shipping-and-handling"
-        - name: REACT_APP_CONTACT_API_HOST
-          value: "http://contact-support-team"
+name: CI - Build & Push to ECR
 
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ecommerce-ui
-  namespace: ecommerce
-spec:
-  ports:
-  - port: 4000
-    name: http
-  selector:
-    app: ecommerce-ui
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: 204645257245
+  ECR_REPO: retail-msvc
+
+jobs:
+  detect-changes:
+    name: Detect Changed Microservices
+    runs-on: ubuntu-latest
+    outputs:
+      ecommerce_ui: ${{ steps.filter.outputs.ecommerce_ui }}
+      product_catalog: ${{ steps.filter.outputs.product_catalog }}
+      product_inventory: ${{ steps.filter.outputs.product_inventory }}
+      order_management: ${{ steps.filter.outputs.order_management }}
+      shipping_and_handling: ${{ steps.filter.outputs.shipping_and_handling }}
+      profile_management: ${{ steps.filter.outputs.profile_management }}
+      contact_support_team: ${{ steps.filter.outputs.contact_support_team }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ecommerce_ui:
+              - ecommerce-ui/**
+            product_catalog:
+              - product-catalog/**
+            product_inventory:
+              - product-inventory/**
+            order_management:
+              - order-management/**
+            shipping_and_handling:
+              - shipping-and-handling/**
+            profile_management:
+              - profile-management/**
+            contact_support_team:
+              - contact-support-team/**
+
+  build-and-push:
+    name: Build & Push Images to ECR
+    runs-on: ubuntu-latest
+    needs: detect-changes
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------- AWS OIDC AUTH ----------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::204645257245:role/github-actions-oidc-role-ui3
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---------- BUILD & PUSH ----------
+      - name: Build & Push changed services
+        run: |
+          declare -A SERVICES=(
+            ["ecommerce-ui"]="${{ needs.detect-changes.outputs.ecommerce_ui }}"
+            ["product-catalog"]="${{ needs.detect-changes.outputs.product_catalog }}"
+            ["product-inventory"]="${{ needs.detect-changes.outputs.product_inventory }}"
+            ["order-management"]="${{ needs.detect-changes.outputs.order_management }}"
+            ["shipping-and-handling"]="${{ needs.detect-changes.outputs.shipping_and_handling }}"
+            ["profile-management"]="${{ needs.detect-changes.outputs.profile_management }}"
+            ["contact-support-team"]="${{ needs.detect-changes.outputs.contact_support_team }}"
+          )
+
+          for service in "${!SERVICES[@]}"; do
+            if [ "${SERVICES[$service]}" = "true" ]; then
+              IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${service}-${GITHUB_SHA::7}"
+
+              echo "🚀 Building & pushing $IMAGE"
+
+              docker buildx build \
+                --push \
+                --cache-from type=gha \
+                --cache-to type=gha,mode=max \
+                -t $IMAGE \
+                ./$service
+            fi
+          done
