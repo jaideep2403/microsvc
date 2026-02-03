@@ -26,20 +26,20 @@ concurrency:
   group: microservices-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
 # --------------------------------------------------
 # 1️⃣ Detect changed services
 # --------------------------------------------------
+jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      ecommerce-ui: ${{ steps.changes.outputs.ecommerce-ui }}
-      product-catalog: ${{ steps.changes.outputs.product-catalog }}
-      product-inventory: ${{ steps.changes.outputs.product-inventory }}
-      order-management: ${{ steps.changes.outputs.order-management }}
-      shipping-and-handling: ${{ steps.changes.outputs.shipping-and-handling }}
-      profile-management: ${{ steps.changes.outputs.profile-management }}
-      contact-support-team: ${{ steps.changes.outputs.contact-support-team }}
+      ecommerce_ui: ${{ steps.changes.outputs.ecommerce-ui }}
+      product_catalog: ${{ steps.changes.outputs.product-catalog }}
+      product_inventory: ${{ steps.changes.outputs.product-inventory }}
+      order_management: ${{ steps.changes.outputs.order-management }}
+      shipping_and_handling: ${{ steps.changes.outputs.shipping-and-handling }}
+      profile_management: ${{ steps.changes.outputs.profile-management }}
+      contact_support_team: ${{ steps.changes.outputs.contact-support-team }}
 
     steps:
       - uses: actions/checkout@v4
@@ -57,9 +57,9 @@ jobs:
             contact-support-team: [ 'contact-support-team/**' ]
 
 # --------------------------------------------------
-# 2️⃣ PR → Build only (no push)
+# 2️⃣ PR → Build only (NO push)
 # --------------------------------------------------
-  build:
+  build-pr:
     needs: detect-changes
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -68,11 +68,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
 
+      - name: Export change flags
+        run: |
+          echo "ecommerce-ui=${{ needs.detect-changes.outputs.ecommerce_ui }}" >> $GITHUB_ENV
+          echo "product-catalog=${{ needs.detect-changes.outputs.product_catalog }}" >> $GITHUB_ENV
+          echo "product-inventory=${{ needs.detect-changes.outputs.product_inventory }}" >> $GITHUB_ENV
+          echo "order-management=${{ needs.detect-changes.outputs.order_management }}" >> $GITHUB_ENV
+          echo "shipping-and-handling=${{ needs.detect-changes.outputs.shipping_and_handling }}" >> $GITHUB_ENV
+          echo "profile-management=${{ needs.detect-changes.outputs.profile_management }}" >> $GITHUB_ENV
+          echo "contact-support-team=${{ needs.detect-changes.outputs.contact_support_team }}" >> $GITHUB_ENV
+
       - name: Build images (validation only)
         run: |
           services=("ecommerce-ui" "product-catalog" "product-inventory" "order-management" "shipping-and-handling" "profile-management" "contact-support-team")
+
           for service in "${services[@]}"; do
-            if [ "${{ needs.detect-changes.outputs[service] }}" == "true" ]; then
+            if [ "${!service}" == "true" ]; then
               docker build -t test/$service:pr-$GITHUB_SHA ./$service
             fi
           done
@@ -86,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # OIDC
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -101,18 +112,29 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & Push changed services to ECR
+      - name: Export change flags
+        run: |
+          echo "ecommerce-ui=${{ needs.detect-changes.outputs.ecommerce_ui }}" >> $GITHUB_ENV
+          echo "product-catalog=${{ needs.detect-changes.outputs.product_catalog }}" >> $GITHUB_ENV
+          echo "product-inventory=${{ needs.detect-changes.outputs.product_inventory }}" >> $GITHUB_ENV
+          echo "order-management=${{ needs.detect-changes.outputs.order_management }}" >> $GITHUB_ENV
+          echo "shipping-and-handling=${{ needs.detect-changes.outputs.shipping_and_handling }}" >> $GITHUB_ENV
+          echo "profile-management=${{ needs.detect-changes.outputs.profile_management }}" >> $GITHUB_ENV
+          echo "contact-support-team=${{ needs.detect-changes.outputs.contact_support_team }}" >> $GITHUB_ENV
+
+      - name: Build & Push images to ECR
         run: |
           services=("ecommerce-ui" "product-catalog" "product-inventory" "order-management" "shipping-and-handling" "profile-management" "contact-support-team")
+
           for service in "${services[@]}"; do
-            if [ "${{ needs.detect-changes.outputs[service] }}" == "true" ]; then
-              ECR_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${service}:${GITHUB_SHA::7}"
+            if [ "${!service}" == "true" ]; then
+              IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/$service:${GITHUB_SHA::7}"
 
               docker buildx build \
                 --push \
                 --cache-from type=gha \
                 --cache-to type=gha,mode=max \
-                -t $ECR_IMAGE \
+                -t $IMAGE \
                 ./$service
             fi
           done
@@ -130,12 +152,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Export change flags
+        run: |
+          echo "ecommerce-ui=${{ needs.detect-changes.outputs.ecommerce_ui }}" >> $GITHUB_ENV
+          echo "product-catalog=${{ needs.detect-changes.outputs.product_catalog }}" >> $GITHUB_ENV
+          echo "product-inventory=${{ needs.detect-changes.outputs.product_inventory }}" >> $GITHUB_ENV
+          echo "order-management=${{ needs.detect-changes.outputs.order_management }}" >> $GITHUB_ENV
+          echo "shipping-and-handling=${{ needs.detect-changes.outputs.shipping_and_handling }}" >> $GITHUB_ENV
+          echo "profile-management=${{ needs.detect-changes.outputs.profile_management }}" >> $GITHUB_ENV
+          echo "contact-support-team=${{ needs.detect-changes.outputs.contact_support_team }}" >> $GITHUB_ENV
+
       - name: Update DEV manifests
         run: |
           services=("ecommerce-ui" "product-catalog" "product-inventory" "order-management" "shipping-and-handling" "profile-management" "contact-support-team")
+
           for service in "${services[@]}"; do
-            if [ "${{ needs.detect-changes.outputs[service] }}" == "true" ]; then
-              sed -i "s|image: .*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/$service:${GITHUB_SHA::7}|" dev/manifest/$service.yaml
+            if [ "${!service}" == "true" ]; then
+              sed -i "s|image: .*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/$service:${GITHUB_SHA::7}|" \
+                dev/manifest/$service.yaml
             fi
           done
 
