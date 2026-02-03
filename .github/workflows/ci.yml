@@ -19,7 +19,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID: 204645257245
+  AWS_ACCOUNT_ID:  ${{ secrets.AWS_ACCOUNT_ID }}
   IMAGE_TAG: ${{ github.sha }}
 
 concurrency:
